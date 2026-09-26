@@ -51,7 +51,7 @@ static void liberar_matriz(long long **m)
     }
 }
 
-/* Llena la matriz con enteros positivos aleatorios en [1, limite]. */
+/* Llena la matriz con enteros aleatorios en [0, limite]. */
 static void llenar_aleatorio(long long **m, int n, int limite)
 {
     long long rango = (long long)RAND_MAX + 1;
@@ -94,6 +94,12 @@ static void multiplicar(long long **a, long long **b, long long **c, int n, int 
 
     pthread_t *hilos = (pthread_t *)malloc((size_t)num_hilos * sizeof(pthread_t));
     tarea_hilo_t *tareas = (tarea_hilo_t *)malloc((size_t)num_hilos * sizeof(tarea_hilo_t));
+    if (hilos == NULL || tareas == NULL) {
+        fprintf(stderr, "Error: memoria insuficiente para %d hilos\n", num_hilos);
+        free(hilos);
+        free(tareas);
+        exit(EXIT_FAILURE);
+    }
 
     int filas_por_hilo = n / num_hilos;
     int resto = n % num_hilos;
@@ -109,7 +115,10 @@ static void multiplicar(long long **a, long long **b, long long **c, int n, int 
         tareas[t].fila_fin = fila_actual + filas_este_hilo;
         fila_actual += filas_este_hilo;
 
-        pthread_create(&hilos[t], NULL, multiplicar_rango, &tareas[t]);
+        if (pthread_create(&hilos[t], NULL, multiplicar_rango, &tareas[t]) != 0) {
+            fprintf(stderr, "Error: no se pudo crear el hilo %d de %d\n", t + 1, num_hilos);
+            exit(EXIT_FAILURE);
+        }
     }
 
     for (int t = 0; t < num_hilos; t++)
@@ -126,7 +135,8 @@ static void multiplicar(long long **a, long long **b, long long **c, int n, int 
  */
 static long verificar(long long **a, long long **b, long long **c, int n)
 {
-    long muestras = (n < 1000) ? (long)n * n : 1000; /* hasta 1000 celdas */
+    long celdas = (long)n * n;
+    long muestras = celdas < 1000 ? celdas : 1000; /* hasta 1000 celdas */
     long errores = 0;
     unsigned int estado = 12345u;
 
@@ -151,7 +161,7 @@ int main(int argc, char *argv[])
 {
     if (argc < 2) {
         fprintf(stderr, "Uso: %s <tamaño> [limite] [verificar] [semilla] [hilos]\n", argv[0]);
-        fprintf(stderr, "  tamaño >= %d, limite >= 1, verificar = 0|1, hilos >= 1\n", MIN_SIZE);
+        fprintf(stderr, "  tamaño >= %d, limite >= 0, verificar = 0|1, hilos >= 1\n", MIN_SIZE);
         return EXIT_FAILURE;
     }
 
@@ -190,31 +200,43 @@ int main(int argc, char *argv[])
         return EXIT_FAILURE;
     }
 
-    /* Generación aleatoria de contenido (enteros positivos) */
+    /* Generación aleatoria de contenido (enteros entre 0 y limite) */
     llenar_aleatorio(A, n, limite);
     llenar_aleatorio(B, n, limite);
 
-    /* Mide CPU de usuario acumulada por todos los hilos del proceso. */
+    /* Mide tiempo de pared transcurrido y CPU de usuario/sistema acumulada
+     * por todos los hilos del proceso. */
     struct rusage uso_inicio, uso_fin;
+    struct timespec reloj_inicio, reloj_fin;
     if (getrusage(RUSAGE_SELF, &uso_inicio) != 0) {
         perror("Error al iniciar la medicion del tiempo de usuario");
         liberar_matriz(A); liberar_matriz(B); liberar_matriz(C);
         return EXIT_FAILURE;
     }
+    clock_gettime(CLOCK_MONOTONIC, &reloj_inicio);
     multiplicar(A, B, C, n, num_hilos);
+    clock_gettime(CLOCK_MONOTONIC, &reloj_fin);
     if (getrusage(RUSAGE_SELF, &uso_fin) != 0) {
         perror("Error al finalizar la medicion del tiempo de usuario");
         liberar_matriz(A); liberar_matriz(B); liberar_matriz(C);
         return EXIT_FAILURE;
     }
+    double segundos_pared =
+        (double)(reloj_fin.tv_sec - reloj_inicio.tv_sec) +
+        (double)(reloj_fin.tv_nsec - reloj_inicio.tv_nsec) / 1e9;
     double segundos_usuario =
         (double)(uso_fin.ru_utime.tv_sec - uso_inicio.ru_utime.tv_sec) +
         (double)(uso_fin.ru_utime.tv_usec - uso_inicio.ru_utime.tv_usec) / 1e6;
+    double segundos_sistema =
+        (double)(uso_fin.ru_stime.tv_sec - uso_inicio.ru_stime.tv_sec) +
+        (double)(uso_fin.ru_stime.tv_usec - uso_inicio.ru_stime.tv_usec) / 1e6;
 
     /* Solo se reportan métricas; nunca se imprimen las matrices */
     printf("Multiplicacion de matrices %dx%d completada.\n", n, n);
     printf("Limite de valores: %d | Semilla: %u | Hilos: %d\n", limite, semilla, num_hilos);
+    printf("Tiempo de pared: %.3f segundos\n", segundos_pared);
     printf("Tiempo de usuario: %.3f segundos\n", segundos_usuario);
+    printf("Tiempo de sistema: %.3f segundos\n", segundos_sistema);
 
     if (verif) {
         long errores = verificar(A, B, C, n);
