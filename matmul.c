@@ -204,39 +204,20 @@ int main(int argc, char *argv[])
     llenar_aleatorio(A, n, limite);
     llenar_aleatorio(B, n, limite);
 
-    /* Mide tiempo de pared transcurrido y CPU de usuario/sistema acumulada
-     * por todos los hilos del proceso. */
-    struct rusage uso_inicio, uso_fin;
+    /* Mide el tiempo total real transcurrido del proceso completo. */
     struct timespec reloj_inicio, reloj_fin;
-    if (getrusage(RUSAGE_SELF, &uso_inicio) != 0) {
-        perror("Error al iniciar la medicion del tiempo de usuario");
-        liberar_matriz(A); liberar_matriz(B); liberar_matriz(C);
-        return EXIT_FAILURE;
-    }
     clock_gettime(CLOCK_MONOTONIC, &reloj_inicio);
     multiplicar(A, B, C, n, num_hilos);
     clock_gettime(CLOCK_MONOTONIC, &reloj_fin);
-    if (getrusage(RUSAGE_SELF, &uso_fin) != 0) {
-        perror("Error al finalizar la medicion del tiempo de usuario");
-        liberar_matriz(A); liberar_matriz(B); liberar_matriz(C);
-        return EXIT_FAILURE;
-    }
+
     double segundos_pared =
         (double)(reloj_fin.tv_sec - reloj_inicio.tv_sec) +
         (double)(reloj_fin.tv_nsec - reloj_inicio.tv_nsec) / 1e9;
-    double segundos_usuario =
-        (double)(uso_fin.ru_utime.tv_sec - uso_inicio.ru_utime.tv_sec) +
-        (double)(uso_fin.ru_utime.tv_usec - uso_inicio.ru_utime.tv_usec) / 1e6;
-    double segundos_sistema =
-        (double)(uso_fin.ru_stime.tv_sec - uso_inicio.ru_stime.tv_sec) +
-        (double)(uso_fin.ru_stime.tv_usec - uso_inicio.ru_stime.tv_usec) / 1e6;
 
     /* Solo se reportan métricas; nunca se imprimen las matrices */
     printf("Multiplicacion de matrices %dx%d completada.\n", n, n);
     printf("Limite de valores: %d | Semilla: %u | Hilos: %d\n", limite, semilla, num_hilos);
-    printf("Tiempo de pared: %.3f segundos\n", segundos_pared);
-    printf("Tiempo de usuario: %.3f segundos\n", segundos_usuario);
-    printf("Tiempo de sistema: %.3f segundos\n", segundos_sistema);
+    printf("Tiempo total del proceso: %.3f segundos\n", segundos_pared);
 
     if (verif) {
         long errores = verificar(A, B, C, n);
