@@ -1,0 +1,7 @@
+variante,banderas,mediana_pared_s,min_pared_s,mediana_usuario_s,mediana_sistema_s,speedup_vs_O0,verificacion
+O0,"-O0",2.587,2.407,2.579,0.016,1.00,OK
+O1,"-O1",1.067,1.006,1.058,0.012,2.42,OK
+O2,"-O2",1.274,1.196,1.274,0.012,2.03,OK
+O3,"-O3",1.077,0.977,1.067,0.008,2.40,OK
+O3_unroll,"-O3 -funroll-loops",1.142,1.100,1.125,0.016,2.27,OK
+O3_native_unroll,"-O3 -march=native -funroll-loops",1.228,1.030,1.206,0.012,2.11,OK

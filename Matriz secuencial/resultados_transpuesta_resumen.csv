@@ -1,0 +1,2 @@
+banderas,n,mediana_base_s,min_base_s,max_base_s,brecha_base_pct,mediana_transp_s,min_transp_s,max_transp_s,brecha_transp_pct,mejora_mediana,verif_base,verif_transp
+-O3,1000,0.990,0.948,1.195,4.2,0.391,0.362,0.506,7.4,2.53,OK,OK
