@@ -3,10 +3,10 @@
 set -euo pipefail
 
 script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
-matmul_bin=${MATMUL_BIN:-"$script_dir/matmul_procesos"}
+matmul_bin=${MATMUL_BIN:-"$script_dir/matmul"}
 
-if [[ -z "${MATMUL_BIN:-}" ]] && [[ ! -x "$matmul_bin" || "$script_dir/matmul_procesos.c" -nt "$matmul_bin" ]]; then
-    gcc -O2 "$script_dir/matmul_procesos.c" -o "$matmul_bin"
+if [[ -z "${MATMUL_BIN:-}" ]] && [[ ! -x "$matmul_bin" || "$script_dir/matmul.c" -nt "$matmul_bin" ]]; then
+    gcc -O2 "$script_dir/matmul.c" -o "$matmul_bin"
 fi
 
 if [[ ! -x "$matmul_bin" ]]; then
