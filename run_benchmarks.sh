@@ -22,7 +22,7 @@ fi
 
 sizes=(600 1200 2400 4800)
 execution=0
-results_file=${RESULTS_FILE:-"$scriptdir/resultados$(date +%Y%m%d_%H%M%S).txt"}
+results_file=${RESULTS_FILE:-"$script_dir/resultados$(date +%Y%m%d_%H%M%S).txt"}
 
 {
     printf 'Hilos: %s | Valores: 0..9 | Semilla: 155 | Verificacion: activada\n' "$threads"
