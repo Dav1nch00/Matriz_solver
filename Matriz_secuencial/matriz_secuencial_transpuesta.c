@@ -33,7 +33,7 @@
  *   - No imprime matrices de entrada ni de salida
  *   - Multiplicación secuencial: sin hilos ni procesos
  *   - No usa memoria extra: BT ocupa el mismo espacio que ocuparía B
- *   - Mide tiempo de pared, de usuario y de sistema (solo la multiplicación)
+ *   - Mide solo el tiempo de pared de la multiplicación
  *   - Verificación opcional: recomputa una muestra de celdas de C
  *     y las compara contra el resultado del algoritmo
  *
@@ -44,7 +44,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <time.h>
-#include <sys/resource.h>
 
 #define MIN_SIZE 600
 
@@ -196,45 +195,19 @@ int main(int argc, char *argv[])
     llenar_aleatorio(A, n, limite);
     llenar_aleatorio_transpuesta(BT, n, limite);
 
-    /* Mide tiempo de pared transcurrido y CPU de usuario/sistema del proceso.
-     * Al ser secuencial, RUSAGE_SELF es suficiente. */
-    struct rusage uso_inicio, uso_fin;
+    /* Mide solo el tiempo de pared de la multiplicación. */
     struct timespec reloj_inicio, reloj_fin;
-    if (getrusage(RUSAGE_SELF, &uso_inicio) != 0)
-    {
-        perror("Error al iniciar la medicion del tiempo de usuario");
-        liberar_matriz(A);
-        liberar_matriz(BT);
-        liberar_matriz(C);
-        return EXIT_FAILURE;
-    }
     clock_gettime(CLOCK_MONOTONIC, &reloj_inicio);
     multiplicar(A, BT, C, n);
     clock_gettime(CLOCK_MONOTONIC, &reloj_fin);
-    if (getrusage(RUSAGE_SELF, &uso_fin) != 0)
-    {
-        perror("Error al finalizar la medicion del tiempo de usuario");
-        liberar_matriz(A);
-        liberar_matriz(BT);
-        liberar_matriz(C);
-        return EXIT_FAILURE;
-    }
     double segundos_pared =
         (double)(reloj_fin.tv_sec - reloj_inicio.tv_sec) +
         (double)(reloj_fin.tv_nsec - reloj_inicio.tv_nsec) / 1e9;
-    double segundos_usuario =
-        (double)(uso_fin.ru_utime.tv_sec - uso_inicio.ru_utime.tv_sec) +
-        (double)(uso_fin.ru_utime.tv_usec - uso_inicio.ru_utime.tv_usec) / 1e6;
-    double segundos_sistema =
-        (double)(uso_fin.ru_stime.tv_sec - uso_inicio.ru_stime.tv_sec) +
-        (double)(uso_fin.ru_stime.tv_usec - uso_inicio.ru_stime.tv_usec) / 1e6;
 
     /* Solo se reportan métricas; nunca se imprimen las matrices */
     printf("Multiplicacion de matrices %dx%d completada.\n", n, n);
     printf("Limite de valores: %d | Semilla: %u | B transpuesta (fila x fila)\n", limite, semilla);
     printf("Tiempo de pared: %.3f segundos\n", segundos_pared);
-    printf("Tiempo de usuario: %.3f segundos\n", segundos_usuario);
-    printf("Tiempo de sistema: %.3f segundos\n", segundos_sistema);
 
     if (verif)
     {
