@@ -1,10 +1,10 @@
 set -euo pipefail
 
 script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
-matmul_bin=${MATMUL_BIN:-"$script_dir/matmul_transpuesta_O2"}
+matmul_bin=${MATMUL_BIN:-"$script_dir/matmul_secuencial_O3"}
 
-if [[ -z "${MATMUL_BIN:-}" ]] && [[ ! -x "$matmul_bin" || "$script_dir/matriz_secuencial_transpuesta.c" -nt "$matmul_bin" ]]; then
-    gcc -O "$script_dir/matriz_secuencial_transpuesta.c" -o "$matmul_bin"
+if [[ -z "${MATMUL_BIN:-}" ]] && [[ ! -x "$matmul_bin" || "$script_dir/matriz_secuencial.c" -nt "$matmul_bin" ]]; then
+    gcc -O3 "$script_dir/matriz_secuencial.c" -o "$matmul_bin"
 fi
 
 if [[ ! -x "$matmul_bin" ]]; then
@@ -17,7 +17,7 @@ execution=0
 results_file=${RESULTS_FILE:-"$script_dir/resultados$(date +%Y%m%d_%H%M%S).txt"}
 
 {
-    printf 'Version: secuencial transpuesta | Optimizacion: -O | Valores: 0..9 | Semilla: 155 | Verificacion: activada\n'
+    printf 'Version: secuencial | Optimizacion: -O3 | Valores: 0..9 | Semilla: 155 | Verificacion: activada\n'
     for repetition in {1..10}; do
         for size in "${sizes[@]}"; do
             ((execution += 1))
