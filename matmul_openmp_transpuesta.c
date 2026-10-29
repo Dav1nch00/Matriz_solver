@@ -1,49 +1,41 @@
 /*
- * matmul_secuencial_transpuesta.c - Multiplicación de matrices cuadradas (C = A x B)
- *                       Versión SECUENCIAL con B almacenada TRANSPUESTA.
+ * matmul_openmp_transpuesta.c - Multiplicación de matrices cuadradas (C = A x B)
+ *                       Versión PARALELA con OpenMP y B almacenada TRANSPUESTA.
  *
  * Uso (todo por línea de comandos, sin entrada interactiva):
- *   ./matmul_secuencial_transpuesta <tamaño> [limite] [verificar] [semilla]
+ *   ./matmul_openmp_transpuesta <tamaño> [limite] [verificar] [semilla] [hilos]
  *
  *   tamaño    : dimensión N de las matrices NxN (mínimo 600)      [obligatorio]
  *   limite    : valor máximo de las celdas (enteros 0..limite)    [opcional, def: 100]
  *   verificar : 1 = verificación de resultados, 0 = no            [opcional, def: 1]
  *   semilla   : semilla del generador aleatorio                   [opcional, def: tiempo]
+ *   hilos     : cantidad de hilos OpenMP a usar                   [opcional, def: los
+ *               que OpenMP use por defecto (OMP_NUM_THREADS o nº de núcleos)]
  *
- * Idea de la optimización (localidad espacial / línea de caché):
- *   - La memoria se transfiere entre RAM y caché en bloques llamados líneas
- *     de caché (típicamente 64 bytes = 8 valores long long). Al leer un
- *     elemento, el procesador trae la línea completa.
- *   - Las matrices se guardan por filas (row-major). Recorrer una FILA usa
- *     las 8 posiciones de cada línea traída; recorrer una COLUMNA usa solo
- *     1 de las 8 y salta N*8 bytes entre accesos, por lo que cada acceso
- *     toca una línea distinta y puede expulsar líneas que aún se necesitan.
- *   - En C[i][j] = suma_k A[i][k] * B[k][j], A se recorre por filas (bien),
- *     pero B se recorre por COLUMNAS (mal).
- *   - Solución: al GENERAR B se guarda directamente transpuesta (BT), de modo
- *     que BT[j][k] == B[k][j]. Así el producto punto pasa a ser
- *     C[i][j] = suma_k A[i][k] * BT[j][k]: fila x fila, ambos secuenciales.
- *   - La matriz lógica B es la misma que en matmul_secuencial.c para una
- *     misma semilla (se consumen los números aleatorios en el mismo orden),
- *     por lo que C resulta idéntica; solo cambia cómo se guarda B en memoria.
+ * Paralelización:
+ *   - El usuario decide CUÁNTOS hilos se usan (argumento "hilos").
+ *   - OpenMP decide CÓMO se reparte el trabajo: se usa "#pragma omp parallel for"
+ *     sobre el bucle externo (filas de C). Cada hilo calcula filas distintas de C,
+ *     por lo que no hay condiciones de carrera: A y BT solo se leen, y cada celda
+ *     C[i][j] la escribe un único hilo.
+ *   - La generación aleatoria sigue siendo secuencial a propósito, para que con
+ *     la misma semilla las matrices (y por tanto C) sean idénticas a la versión
+ *     secuencial, sin importar el número de hilos.
+ *   - Se mantiene la optimización de B transpuesta (fila x fila).
  *
- * Características:
- *   - Matrices cuadradas con reserva dinámica de memoria (malloc/free)
- *   - Contenido aleatorio, enteros entre 0 y limite
- *   - No imprime matrices de entrada ni de salida
- *   - Multiplicación secuencial: sin hilos ni procesos
- *   - No usa memoria extra: BT ocupa el mismo espacio que ocuparía B
- *   - Mide solo el tiempo de pared de la multiplicación
- *   - Verificación opcional: recomputa una muestra de celdas de C
- *     y las compara contra el resultado del algoritmo
+ * Compilación (Linux / WSL): hay que agregar -fopenmp
+ *   gcc -O3 -fopenmp matmul_openmp_transpuesta.c -o matmul_openmp_transpuesta
  *
- * Compilación (Linux / WSL), con la bandera base decidida en el laboratorio 1:
- *   gcc -O3 matmul_secuencial_transpuesta.c -o matmul_secuencial_transpuesta
+ * Ejemplos:
+ *   ./matmul_openmp_transpuesta 1000 100 1 42 4     # 4 hilos
+ *   ./matmul_openmp_transpuesta 1000 100 1 42 1     # 1 hilo (comparación)
+ *   OMP_NUM_THREADS=8 ./matmul_openmp_transpuesta 1000   # hilos por variable de entorno
  */
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <time.h>
+#include <omp.h>
 
 #define MIN_SIZE 600
 
@@ -73,7 +65,7 @@ static void liberar_matriz(long long **m)
     }
 }
 
-/* Llena la matriz con enteros aleatorios en [0, limite]. */
+/* Llena la matriz con enteros aleatorios en [0, limite]. (Secuencial) */
 static void llenar_aleatorio(long long **m, int n, int limite)
 {
     long long rango = (long long)RAND_MAX + 1;
@@ -85,11 +77,9 @@ static void llenar_aleatorio(long long **m, int n, int limite)
 
 /*
  * Genera la matriz B directamente TRANSPUESTA: el valor lógico B[i][j]
- * se guarda en bt[j][i]. Se recorre i, j en el mismo orden que
- * llenar_aleatorio para consumir rand() en la misma secuencia, de modo que
- * la matriz lógica B sea idéntica a la de la versión sin transponer.
- * Esta escritura con salto ocurre una sola vez (O(n^2)) y fuera de la
- * medición de tiempo de la multiplicación.
+ * se guarda en bt[j][i]. Se mantiene secuencial para consumir rand() en el
+ * mismo orden que la versión secuencial (rand() no es seguro entre hilos
+ * y paralelizarlo cambiaría los valores generados).
  */
 static void llenar_aleatorio_transpuesta(long long **bt, int n, int limite)
 {
@@ -101,12 +91,19 @@ static void llenar_aleatorio_transpuesta(long long **bt, int n, int limite)
 }
 
 /*
- * Multiplicación clásica O(n^3): C = A x B, secuencial.
+ * Multiplicación clásica O(n^3): C = A x B, paralelizada con OpenMP.
  * Recibe BT (B transpuesta): el producto punto recorre la fila i de A y la
  * fila j de BT, ambas de forma contigua en memoria (fila x fila).
+ *
+ * - num_threads(hilos): cantidad de hilos elegida por el usuario.
+ * - parallel for: OpenMP reparte las iteraciones de i entre los hilos.
+ * - schedule(static): todas las filas cuestan lo mismo, así que un reparto
+ *   estático en bloques contiguos es el de menor sobrecarga.
+ * - j, k y suma se declaran dentro del bucle, así que son privadas de cada hilo.
  */
-static void multiplicar(long long **a, long long **bt, long long **c, int n)
+static void multiplicar(long long **a, long long **bt, long long **c, int n, int hilos)
 {
+#pragma omp parallel for num_threads(hilos) schedule(static)
     for (int i = 0; i < n; i++)
     {
         for (int j = 0; j < n; j++)
@@ -121,7 +118,7 @@ static void multiplicar(long long **a, long long **bt, long long **c, int n)
 
 /*
  * Verificación: toma una muestra determinista de celdas de C
- * y recomputa cada producto punto de forma independiente.
+ * y recomputa cada producto punto de forma independiente (secuencial).
  * Devuelve el número de discrepancias encontradas (0 = correcto).
  */
 static long verificar(long long **a, long long **bt, long long **c, int n)
@@ -153,8 +150,8 @@ int main(int argc, char *argv[])
 {
     if (argc < 2)
     {
-        fprintf(stderr, "Uso: %s <tamaño> [limite] [verificar] [semilla]\n", argv[0]);
-        fprintf(stderr, "  tamaño >= %d, limite >= 0, verificar = 0|1\n", MIN_SIZE);
+        fprintf(stderr, "Uso: %s <tamaño> [limite] [verificar] [semilla] [hilos]\n", argv[0]);
+        fprintf(stderr, "  tamaño >= %d, limite >= 0, verificar = 0|1, hilos >= 1\n", MIN_SIZE);
         return EXIT_FAILURE;
     }
 
@@ -163,6 +160,9 @@ int main(int argc, char *argv[])
     int verif = (argc > 3) ? atoi(argv[3]) : 1;
     unsigned int semilla = (argc > 4) ? (unsigned int)strtoul(argv[4], NULL, 10)
                                       : (unsigned int)time(NULL);
+    /* Si no se indica, se usa lo que OpenMP tenga por defecto
+     * (variable OMP_NUM_THREADS o número de núcleos disponibles). */
+    int hilos = (argc > 5) ? atoi(argv[5]) : omp_get_max_threads();
 
     if (n < MIN_SIZE)
     {
@@ -172,6 +172,11 @@ int main(int argc, char *argv[])
     if (limite < 0)
     {
         fprintf(stderr, "Error: el limite debe ser >= 0 (recibido: %d)\n", limite);
+        return EXIT_FAILURE;
+    }
+    if (hilos < 1)
+    {
+        fprintf(stderr, "Error: la cantidad de hilos debe ser >= 1 (recibido: %d)\n", hilos);
         return EXIT_FAILURE;
     }
 
@@ -195,18 +200,17 @@ int main(int argc, char *argv[])
     llenar_aleatorio(A, n, limite);
     llenar_aleatorio_transpuesta(BT, n, limite);
 
-    /* Mide solo el tiempo de pared de la multiplicación. */
-    struct timespec reloj_inicio, reloj_fin;
-    clock_gettime(CLOCK_MONOTONIC, &reloj_inicio);
-    multiplicar(A, BT, C, n);
-    clock_gettime(CLOCK_MONOTONIC, &reloj_fin);
-    double segundos_pared =
-        (double)(reloj_fin.tv_sec - reloj_inicio.tv_sec) +
-        (double)(reloj_fin.tv_nsec - reloj_inicio.tv_nsec) / 1e9;
+    /* Mide solo el tiempo de pared de la multiplicación (omp_get_wtime
+     * es un reloj de pared portable proporcionado por OpenMP). */
+    double inicio = omp_get_wtime();
+    multiplicar(A, BT, C, n, hilos);
+    double fin = omp_get_wtime();
+    double segundos_pared = fin - inicio;
 
     /* Solo se reportan métricas; nunca se imprimen las matrices */
     printf("Multiplicacion de matrices %dx%d completada.\n", n, n);
     printf("Limite de valores: %d | Semilla: %u | B transpuesta (fila x fila)\n", limite, semilla);
+    printf("Hilos OpenMP: %d\n", hilos);
     printf("Tiempo de pared: %.3f segundos\n", segundos_pared);
 
     if (verif)
